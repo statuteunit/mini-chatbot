@@ -119,7 +119,43 @@ export function useChat(options:UseChatOptions={}):UseChatReturn{
                 }
             }
         }catch(e){
-            
+            if((e as Error).name==='AbortError'){
+                console.log('aborted')
+            }else{
+                console.log('chat Err:',e);
+                // 清空准备的占位消息
+                setMessages(messages.filter((m)=>m.id!==assistantMessage.id))
+            }
+        }finally{
+            setIsLoading(false)
+            setAbortController(null)
         }
     },[messages,model,api])
+
+    // 用户不满意输出,重新生成最后一条回复
+    const reload=useCallback(()=>{
+        // 找到最后一次用户的问题
+        const lastUserIndex=messages.findLastIndex((m)=>m.role==='user')
+        if(lastUserIndex===-1)return;
+        const lastUserMessage=messages[lastUserIndex]
+        // 删除后面的信息
+        setMessages((prev)=>prev.slice(0,lastUserIndex))
+        // 重新发送请求
+        append(lastUserMessage.content)
+    },[messages,append])
+
+    // 停止生成
+    const stop=useCallback(()=>{
+        if(abortController)abortController.abort()
+    },[abortController])
+
+    return {
+        messages,
+        input,
+        isLoading,
+        append,
+        setInput,
+        reload,
+        stop
+    }
 }
