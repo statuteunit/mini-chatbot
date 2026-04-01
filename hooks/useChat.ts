@@ -3,7 +3,6 @@
 import { useState,useCallback } from "react"
 import { Message,ChatCompletionMessage } from "@/types/chat"
 import { generateId } from "@/lib/utils"
-import { setAbortedLogsStyle } from "next/dist/server/node-environment-extensions/console-dim.external"
 
 // 发送对话的配置项
 interface UseChatOptions{
@@ -93,16 +92,22 @@ export function useChat(options:UseChatOptions={}):UseChatReturn{
             if(!reader)return 
             // 解析数据
             let accumulatedContent=''
+            let buffer=''
             // 累积更新消息内容
             while(true){
                 const {done,value}=await reader.read()
                 if(done)break;
-
-                const chunks=decoder.decode(value,{stream:true})
-                const lines=chunks.split('\n')
+                
+                buffer+=decoder.decode(value,{stream:true})
+                const lines=buffer.split('\n')
+                // 把可能不完整的最后一行留到下一次buffer继续拼接
+                buffer=lines.pop()??''
 
                 for(const line of lines){
-                    const data=line.slice(6)//去掉data: 前缀
+                    // 排除空行的情况
+                    if(!line)continue
+                    if(!line.startsWith('data:'))continue
+                    const data=line.slice('data:'.length).trim()//去掉data:前缀和空格
                     if(data==='[DONE]')continue;
 
                     try{
