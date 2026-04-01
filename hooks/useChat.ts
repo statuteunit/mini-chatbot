@@ -3,7 +3,6 @@
 import { useState,useCallback } from "react"
 import { Message,ChatCompletionMessage } from "@/types/chat"
 import { generateId } from "@/lib/utils"
-import { setAbortedLogsStyle } from "next/dist/server/node-environment-extensions/console-dim.external"
 
 // 发送对话的配置项
 interface UseChatOptions{
