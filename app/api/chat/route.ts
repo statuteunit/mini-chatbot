@@ -1,10 +1,17 @@
 import { NextRequest } from 'next/server'
+import { auth } from "@/auth"
 
 const OLLAMA_BASE_URL = process.env.NEXT_PUBLIC_OLLAMA_BASE_URL
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
 const OPENROUTER_BASE_URL = process.env.NEXT_PUBLIC_OPENROUTER_BASE_URL
 
 export async function POST(req: NextRequest) {
+    const session =await auth()
+    if(!session?.user?.id){
+        return new Response("Unauthorized",{
+            status:401
+        })
+    }
     try {
         if (!OPENROUTER_API_KEY) {
             return new Response(
