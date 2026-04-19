@@ -19,6 +19,24 @@ function buildChatTitleFromMessage(content: string) {
   return `${normalized.slice(0, CHAT_TITLE_MAX_LENGTH)}...`
 }
 
+function sortMessagesForDisplay<T extends { createdAt: Date; role: string }>(messages: T[]) {
+  return [...messages].sort((a, b) => {
+    const timeDiff = a.createdAt.getTime() - b.createdAt.getTime()
+
+    if (timeDiff !== 0) {
+      return timeDiff
+    }
+
+    const roleOrder: Record<string, number> = {
+      system: 0,
+      user: 1,
+      assistant: 2,
+    }
+
+    return (roleOrder[a.role] ?? 99) - (roleOrder[b.role] ?? 99)
+  })
+}
+
 export async function createChat(model: string, userId?: string) {
   // 如果提供了 userId，则确保该用户在 User 表中存在，以避免外键约束错误
   if (userId) {
@@ -68,7 +86,7 @@ export async function addMessages(
   assistantMessage: { id: string; role: 'user' | 'assistant' | 'system'; content: string; createdAt: Date },
   userId?: string
 ) {
-  await prisma.$transaction(async (tx) => {
+  return await prisma.$transaction(async (tx) => {
     const chat = await tx.chat.findFirst({
       where: { id: chatId, userId: userId || null },
       select: { id: true, title: true },
@@ -113,6 +131,9 @@ export async function addMessages(
         ...(shouldSetTitle ? { title: buildChatTitleFromMessage(userMessage.content) } : {}),
       },
     })
+    return {
+      updatedTitle: shouldSetTitle ? buildChatTitleFromMessage(userMessage.content) : null,
+    }
   })
 }
 
@@ -172,4 +193,62 @@ export async function deleteChat(id: string, userId?: string) {
   ])
 
   return res[1].count
+}
+
+// 分页请求messages
+export async function getChatMessagesPage(
+  chatId: string,
+  userId: string | undefined,
+  options: {
+    limit?: number
+    beforeId?: string
+    beforeCreatedAt?: string
+  }
+) {
+  const { limit = 10, beforeId, beforeCreatedAt } = options
+  const chat = await prisma.chat.findFirst({
+    where: {
+      id: chatId,
+      userId: userId || null,
+    },
+    select: { id: true },
+  })
+  if (!chat) {
+    return null
+  }
+
+  const cursorDate = beforeCreatedAt ? new Date(beforeCreatedAt) : null
+  const rows = await prisma.message.findMany({
+    where: {
+      chatId,
+      ...(beforeId && cursorDate ? {
+        OR: [
+          { createdAt: { lt: cursorDate } },
+          {
+            createdAt: cursorDate,
+            id: { lt: beforeId }
+          },
+        ],
+      } : {}),
+    },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    // 倒序返回，需要翻转
+    take: limit + 1,
+    // 判断是否还有下一页
+  })
+
+  const hasMore = rows.length > limit
+  const pageRows = rows.slice(0, limit)
+  const orderedRows = sortMessagesForDisplay(pageRows)
+  // 翻转，最老的消息在最前面
+  const oldest = orderedRows[0]
+
+  return {
+    messages: orderedRows,
+    hasMore,
+    nextCursor: hasMore && oldest ? {
+      beforeId: oldest.id,
+      beforeCreatedAt: oldest.createdAt.toISOString(),
+    } : null,
+  }
 }

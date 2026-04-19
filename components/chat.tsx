@@ -1,14 +1,24 @@
 'use client'
 
 import { useChat } from "@/hooks/useChat"
-import { MessageList } from "@/components/ui/messageList"
+import { MessageList } from "@/components/messageList"
 import { ChatInput } from "@/components/ui/chatInput"
 import { ModelSelector } from "./modelSelector"
 import { Siderbar } from "./siderbar"
 import { DEFAULT_CHAT_MODEL } from "@/lib/model"
-import { useState } from "react"
+import { useChatCacheStore } from '@/stores/chat-cache-store'
+import { useCallback, useMemo, useState, useEffect } from 'react'
 import { Button } from "@/components/ui/button"
 import { useSession } from "next-auth/react"
+
+// 修正messages的createdAt类型
+function normalizeMessages(messages: any[] | undefined | null) {
+    const safeMessages = Array.isArray(messages) ? messages : []
+    return safeMessages.map((item) => ({
+        ...item,
+        createdAt: new Date(item.createdAt)
+    }))
+}
 
 export function Chat() {
     const MOCK_USER_ID = "user1"
@@ -18,8 +28,52 @@ export function Chat() {
     // 选择模型状态
     const [selectedModelId, setSelectedModelId] = useState(DEFAULT_CHAT_MODEL)
     const [currentChatId, setCurrentChatId] = useState<string | null>(null)
-    const { messages, input, setInput, isLoading, append, reload, stop, setMessages } = useChat({ model: selectedModelId, chatId: currentChatId ?? undefined })
     const [isOpen, setIsOpen] = useState(false)
+    // 从状态库取出状态和方法
+    const {
+        chats,
+        chatsLoaded,
+        messageCache,
+        setChats,
+        upsertChat,
+        removeChat,
+        invalidateChats,
+        setChatSnapshot,
+        clearChatSnapshot
+    } = useChatCacheStore()
+    const [isLoadingOlder, setIsLoadingOlder] = useState(false)
+
+    const currentSnapshot = currentChatId ? messageCache[currentChatId] : undefined
+
+    const { messages, input, setInput, isLoading, append, reload, stop, setMessages } = useChat({
+        model: selectedModelId,
+        chatId: currentChatId ?? undefined,
+        onChatTitleChange: (chatId, title) => {
+            const target = chats.find((item) => item.id === chatId)
+            if (!target) return
+
+            upsertChat({
+                ...target,
+                title,
+                updatedAt: new Date().toISOString(),
+            })
+        }
+    })
+
+    // 拉取所有chats
+    const loadChats = useCallback(async (force = false) => {
+        // 加载过了，除非强制更新否则不加载
+        if (chatsLoaded && !force) return
+        // 获取
+        const res = await fetch(`/api/chats`)
+        if (!res.ok) return
+        const data = await res.json()
+        setChats(Array.isArray(data) ? data : [])
+    }, [chatsLoaded, setChats])
+
+    useEffect(() => {
+        void loadChats()
+    }, [loadChats])
 
     const handleSubmit = () => {
         append(input)
@@ -47,6 +101,8 @@ export function Chat() {
         })
         if (!res.ok) return
         const chat = await res.json()
+        upsertChat(chat)
+        clearChatSnapshot(chat.id)
         setCurrentChatId(chat.id)
         setIsOpen(false)
     }
@@ -56,21 +112,72 @@ export function Chat() {
             // 中断当前流
             stop()
             setInput('')
-            const res = await fetch(`/api/chats/${chatId}?userId=${userId}`)
+            const chatSummary = chats.find((item) => item.id === chatId)
+            if (chatSummary?.model) {
+                setSelectedModelId(chatSummary.model)
+                document.cookie = `selectedModel=${chatSummary.model}; path=/; max-age=31536000`
+            }
+            const cached = messageCache[chatId]
+            if (cached) {
+                setMessages(cached.recentMessages)
+                setCurrentChatId(chatId)
+                setIsOpen(false)
+                // 如果有缓存就不请求
+                return
+            }
+
+            const res = await fetch(`/api/chats/${chatId}/messages?limit=10`)
             if (!res.ok) return
             // 获取该id下的历史记录
-            const chat = await res.json()
-            setMessages(chat.messages || [])
+            const data = await res.json()
+            const pageMessages = normalizeMessages(data.messages || [])
+            setMessages(pageMessages)
+            setChatSnapshot(chatId, pageMessages, data.hasMore, data.nextCursor)
             setCurrentChatId(chatId)
-            if (chat.chat?.model) {
-                setSelectedModelId(chat.chat.model)
-                document.cookie = `selectedModel=${chat.chat.model}; path=/; max-age=31536000`
-            }
+            // if (chat.chat?.model) {
+            //     setSelectedModelId(chat.chat.model)
+            //     document.cookie = `selectedModel=${chat.chat.model}; path=/; max-age=31536000`
+            // }
             setIsOpen(false)
         } catch (e) {
 
         }
     }
+    // 用户发新消息后，最近10条缓存要跟着更新
+    useEffect(() => {
+        if (!currentChatId) return
+
+        const hasMore = currentSnapshot?.hasMore ?? false
+        const nextCursor = currentSnapshot?.nextCursor ?? null
+
+        setChatSnapshot(currentChatId, messages, hasMore, nextCursor)
+    }, [currentChatId, messages, currentSnapshot?.hasMore, currentSnapshot?.nextCursor, setChatSnapshot])
+
+    // 向上滚动加载
+    const loadOlderMessages = useCallback(async () => {
+        if (!currentChatId || isLoadingOlder) return
+        const snapshot = useChatCacheStore.getState().messageCache[currentChatId]
+        if (!snapshot.hasMore || !snapshot.nextCursor) return
+        setIsLoadingOlder(true)
+        try {
+            const params = new URLSearchParams({
+                limit: '10',
+                beforeId: snapshot.nextCursor.beforeId,
+                beforeCreatedAt: snapshot.nextCursor.beforeCreatedAt,
+            })
+
+            const res = await fetch(`/api/chats/${currentChatId}/messages?${params.toString()}`)
+            if (!res.ok) return
+            const data = await res.json()
+            const olderMessages = normalizeMessages(data.messages)
+
+            const merged = [...olderMessages, ...messages]
+            setMessages(merged)
+            setChatSnapshot(currentChatId, merged, data.hasMore, data.nextCursor)
+        } finally {
+            setIsLoadingOlder(false)
+        }
+    }, [currentChatId, isLoadingOlder, messages, setMessages, setChatSnapshot])
 
     return (
         <div className="flex flex-col h-screen max-w-4xl mx-auto">
@@ -104,7 +211,12 @@ export function Chat() {
             />
 
             {/* 消息列表 */}
-            <MessageList messages={messages} isLoading={isLoading} />
+            <MessageList
+                messages={messages}
+                isLoading={isLoading}
+                hasMore={currentSnapshot?.hasMore}
+                isLoadingOlder={isLoadingOlder}
+                onLoadOlder={loadOlderMessages} />
 
             {/* 输入框 */}
             <ChatInput

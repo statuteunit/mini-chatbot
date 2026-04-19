@@ -11,8 +11,8 @@ export async function GET(req: NextRequest) {
     })
   }
   const { searchParams } = new URL(req.url)
-  const userId = searchParams.get('userId') || undefined
-  const chats = await getAllChats(userId)
+  // const userId = searchParams.get('userId') || undefined
+  const chats = await getAllChats(session.user.id)
   return Response.json(chats)
 }
 

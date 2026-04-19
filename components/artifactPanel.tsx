@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react';
-import { useArtifact } from '@/hooks/useArtifact';
+import { useArtifact } from '@/stores/useArtifact';
 import { Button } from '@/components/ui/button';
 
 export function ArtifactPanel() {

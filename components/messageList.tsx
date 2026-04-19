@@ -1,25 +1,41 @@
 // components/MessageList.tsx
 'use client';
 
-import { useEffect, useRef } from 'react';
-import { Message } from '@/types/chat';
-import { MessageItem } from '@/components/ui/messageItem';
+import { useEffect, useRef, useCallback } from 'react';
+import type { Message } from '@/types/chat';
+import { MessageItem } from '@/components/messageItem';
 
 interface MessageListProps {
-  messages: Message[];
-  isLoading: boolean;
+  messages: Message[]
+  isLoading: boolean
+  hasMore?: boolean
+  isLoadingOlder?: boolean
+  onLoadOlder?: () => void
 }
 
-export function MessageList({ messages, isLoading }: MessageListProps) {
+export function MessageList({ messages, isLoading, hasMore = false, isLoadingOlder = false, onLoadOlder }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null)
 
   // 自动滚动到底部
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const handleScroll = useCallback(() => {
+    const el = containerRef.current
+    if (!el || !onLoadOlder || isLoadingOlder || !hasMore) return
+
+    if (el.scrollTop <= 80) {
+      onLoadOlder()
+    }
+  }, [onLoadOlder, isLoadingOlder, hasMore])
+
   return (
-    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+    <div
+      ref={containerRef}
+      onScroll={handleScroll}
+      className="flex-1 overflow-y-auto p-4 space-y-4">
       {/* 空状态 */}
       {messages.length === 0 && (
         <div className="flex items-center justify-center h-full text-gray-400">

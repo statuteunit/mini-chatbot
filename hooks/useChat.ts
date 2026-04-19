@@ -11,6 +11,7 @@ interface UseChatOptions {
     api?: string
     model?: string
     initialMessages?: Message[]
+    onChatTitleChange?: (chatId: string, title: string) => void
 }
 
 // 返回类型
@@ -27,7 +28,7 @@ interface UseChatReturn {
 }
 
 export function useChat(options: UseChatOptions = {}): UseChatReturn {
-    const { chatId, api = '/api/chat', model = 'Qwen2.5', initialMessages = [] } = options
+    const { chatId, api = '/api/chat', model = 'openrouter/free', initialMessages = [], onChatTitleChange } = options
     const [input, setInput] = useState('')
     const [isLoading, setIsLoading] = useState(false)
     const [abortController, setAbortController] = useState<AbortController | null>(null);
@@ -73,11 +74,19 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         // 添加消息
         try {
             if (chatId) {
-                await fetch(`/api/chats/${chatId}/messages`, {
+                const saveRes = await fetch(`/api/chats/${chatId}/messages`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userMessage, assistantMessage })
                 })
+                if (saveRes.ok) {
+                    // 返回的结果中有标题？
+                    const saveData = await saveRes.json()
+
+                    if (saveData.updatedTitle && onChatTitleChange) {
+                        onChatTitleChange(chatId, saveData.updatedTitle)
+                    }
+                }
             }
         } catch { }
 

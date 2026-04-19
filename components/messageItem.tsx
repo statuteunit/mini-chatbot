@@ -1,8 +1,8 @@
 // components/MessageItem.tsx
 import { Message } from '@/types/chat';
 import { cn } from '@/lib/utils';
-import { CodeBlock } from '../codeBlock';
-import { useArtifact, parseArtifactFromContent } from '@/hooks/useArtifact';
+import { CodeBlock } from '@/components/codeBlock';
+import { useArtifact, parseArtifactFromContent } from '@/stores/useArtifact';
 
 interface MessageItemProps {
   message: Message;

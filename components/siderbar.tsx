@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useSession } from "next-auth/react"
+import { useChatCacheStore } from '@/stores/chat-cache-store'
 
 interface siderbarProps {
   isOpen: boolean
@@ -15,30 +16,34 @@ interface siderbarProps {
 }
 
 export function Siderbar({ isOpen, onClose, onNewChat, onSelectChat, currentChatId, userId }: siderbarProps) {
-  const [chats, setChats] = useState([])
-  const {data:session}=useSession()
+  // const [chats, setChats] = useState([])
+  const { data: session } = useSession()
+  // 不再需要自己加载对话列表，有chat组件统一加载
   // 获取对话列表
-  const loadChats = async () => {
-    try {
-      const response = await fetch(`/api/chats?userId=${userId}`)
-      if (!response.ok) return
-      const data = await response.json()
-      setChats(data)
-    } catch (e) {
-    }
-  }
+  // const loadChats = async () => {
+  //   try {
+  //     const response = await fetch(`/api/chats?userId=${userId}`)
+  //     if (!response.ok) return
+  //     const data = await response.json()
+  //     setChats(data)
+  //   } catch (e) {
+  //   }
+  // }
 
-  // 组件挂在时加载对话记录
-  useEffect(() => {
-    loadChats()
-  }, [])
+  // // 组件挂在时加载对话记录
+  // useEffect(() => {
+  //   loadChats()
+  // }, [])
 
   // 打开对话列表时重新请求对话列表
-  useEffect(() => {
-    if (isOpen) {
-      loadChats()
-    }
-  }, [isOpen])
+  // useEffect(() => {
+  //   if (isOpen) {
+  //     loadChats()
+  //   }
+  // }, [isOpen])
+
+  const { chats } = useChatCacheStore()
+  const safeChats = Array.isArray(chats) ? chats : []
 
   return (
     <>
@@ -77,13 +82,13 @@ export function Siderbar({ isOpen, onClose, onNewChat, onSelectChat, currentChat
         </div>
 
         {/* 对话列表 */}
-        {session?<div className="overflow-y-auto h-[calc(100%-120px)]">
-          {chats.length === 0 ? (
+        {session ? <div className="overflow-y-auto h-[calc(100%-120px)]">
+          {safeChats.length === 0 ? (
             <div className="p-4 text-center text-gray-400">
               暂无对话
             </div>
           ) : (
-            chats.map((chat: any) => (
+            safeChats.map((chat: any) => (
               <button
                 key={chat.id}
                 onClick={() => onSelectChat(chat.id)}
@@ -99,7 +104,7 @@ export function Siderbar({ isOpen, onClose, onNewChat, onSelectChat, currentChat
               </button>
             ))
           )}
-        </div>:<div>登陆后查看历史记录</div>}
+        </div> : <div>登陆后查看历史记录</div>}
       </div>
     </>
   )
